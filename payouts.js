@@ -23,15 +23,95 @@ async function payWeeklyRplm () {
 
     // const payoutList = await getIncomeTemplates().then(it => getTemplateOwners(it));
 
+    // if (payoutList.hasOwnProperty('atomicmarket')) {
+    //     delete payoutList['atomicmarket']; // removing pesky atomicmarket account :)
+    // }
+    
+    // console.log(payoutList);
+
     const payoutList = data.curList;
+
+    await pay(payoutList, api);
+
+}
+
+async function pay (payoutList, api) {
+
+    const addresses = Object.keys(payoutList);
+    const amounts = Object.values(payoutList);
+
+    let allTrxComleted = false;
+    let startIndex = 0;
+    let endIndex = 0;
+    const batchCount = 20;
+    const payMultiplier = 1;
+
+    while (!allTrxComleted && addresses.length !== 0) {
+        if (addresses.length <= batchCount) {
+            endIndex = addresses.length;
+        } else {
+            endIndex = startIndex + batchCount;
+        }
+
+        const batchAddresses = addresses.slice(startIndex, endIndex);
+        const batchAmounts = amounts.slice(startIndex, endIndex);
+
+        const actions = batchAddresses.map(function (ba, i) {
+
+            const qty = (batchAmounts[i] * payMultiplier).toFixed(4);
+
+            return {
+                account: 'metatoken.gm',
+                name: 'transfer',
+                authorization: [{
+                    actor: 'coin.reptile',
+                    permission: 'owner'
+                }],
+                data: {
+                    from: 'coin.reptile',
+                    to: ba,
+                    quantity: qty + ' RPLM',
+                    memo: 'Reptilium Weekly Payout'
+                }
+            }
+        });
+
+        let trxCompleted = false;
+
+        while (!trxCompleted) {
+            console.log('sending ' + batchAddresses);
+            const res = await transact(api, actions);
+            console.log(res);
+    
+            if (res) {
+                trxCompleted = true;
+                console.log('transacted ' + batchAmounts + ' RPLM to ' + batchAddresses);
+                break;
+            }
+        }
+
+        if (addresses.length <= batchCount) {
+            allTrxComleted = true;
+            break;
+        } else {
+            addresses.splice(0, batchCount);
+            amounts.splice(0, batchCount);
+        }
+    }
+    
+
+
 
     for (const recipient in payoutList) {
         const amt = payoutList[recipient].toFixed(4);
-        const trxCompleted = false;
+        let trxCompleted = false;
 
-        console.log('sending ' + recipient);
+        const tmpList = {}
+        const tmpListSize = Object.keys(tmpList).length;
+
+
         
-        while (!trxCompleted) {
+        while (!trxCompleted && tmpListSize !== 0 && tmpListSize <= 25) {
             const res = await transact(api, recipient, amt);
             console.log(res);
             if (res) {
@@ -195,36 +275,21 @@ async function getAccounts (colName, id, page, limit) {
     return res;
 }
 
-async function transact (api, recipient, qty) {
+async function transact (api, actions) {
 
     try {
-        const trx = {
-            actions: [
-                {
-                    account: 'metatoken.gm',
-                    name: 'transfer',
-                    authorization: [{
-                        actor: 'coin.reptile',
-                        permission: 'active'
-                    }],
-                    data: {
-                        from: 'coin.reptile',
-                        to: recipient,
-                        quantity: '1.0000 RPLM',
-                        memo: 'Reptilium Weekly Payout'
-                    }
-                }
-            ]
-        }
+        const trx = { actions }
     
         const trxConfig = {
-            blocksBehind: 3,
-            expireSeconds: 30
+            useLastIrreversible: true,
+            expireSeconds: 300
         }
     
         const res = await api.transact(trx, trxConfig);
 
-        if (res && res.wasBroadcast) {
+        console.log(res);
+
+        if (res && res.processed) {
             return true;
         } else {
             return false;
